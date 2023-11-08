@@ -8,7 +8,6 @@ import os.path
 import random
 import requests
 import shutil
-import stat
 import subprocess
 import sys
 import time
@@ -135,6 +134,7 @@ def write_org_file(index, total, output_dir, ni):
         f"""\
 {chr(35)}+setupfile: common.setup
 {chr(35)}+date: [{time_added_org_date}]
+{chr(35)}+comment: DO NOT EDIT - run ~anki-articles-to-org~ to re-export from Anki
 
 * {ni['fields']['given_title']['value']}
 :PROPERTIES:
@@ -163,21 +163,11 @@ def write_org_file(index, total, output_dir, ni):
         logger.info(f"{note_id}: content unchanged - not updating {output_file}")
     else:
         logger.info(f"{note_id}: content changed - updating {output_file}")
-        try:
-            mode = stat.S_IMODE(os.stat(output_file).st_mode)
-            mode |= stat.S_IRUSR | stat.S_IWUSR
-            os.chmod(output_file, mode)
-        except FileNotFoundError:
-            pass
+        logger.debug(
+            f"{note_id}: old_content =\n{content.decode(encoding='utf-8', errors='strict')}"
+        )
         with open(output_file, "wb") as f:
             f.write(content_encoded)
-        # Remove write permission to prevent Emacs from updating the
-        # files by accident.
-        mode = stat.S_IMODE(os.stat(output_file).st_mode)
-        logger.debug(f"{note_id}: begin mode = {stat.filemode(mode)}")
-        mode &= (~stat.S_IWUSR) & (~stat.S_IWGRP) & (~stat.S_IWOTH)
-        logger.debug(f"{note_id}: end mode = {stat.filemode(mode)}")
-        os.chmod(output_file, mode)
 
 
 def schedule_thread(threads, index, total, output_dir, ni):
