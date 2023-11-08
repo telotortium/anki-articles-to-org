@@ -1,3 +1,4 @@
+# For docs, see ../setup.py
 import argparse
 import copy
 import json
