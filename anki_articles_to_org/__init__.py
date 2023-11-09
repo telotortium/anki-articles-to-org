@@ -231,6 +231,9 @@ def main():
         description="Export Article notes in Anki as individual Org-mode files to a directory.",
     )
     parser.add_argument("output_dir", help="The directory to export article notes to.")
+    parser.add_argument(
+        "--edited", type=int, help="Only examine notes modified in the past N days."
+    )
     args = parser.parse_args()
 
     # First, find notes added to Anki but not yet to Pocket and add them to
@@ -245,6 +248,7 @@ def main():
                 # Find notes with `given_url` and `given_title` not empty, but
                 # `item_id` empty.
                 "query": f'"note:{note_type}" "deck:{deck_name}"'
+                + (f" edited:{args.edited}" if args.edited else ""),
             },
         }
     )
