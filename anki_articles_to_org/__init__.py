@@ -1,20 +1,17 @@
 # For docs, see ../setup.py
 import argparse
-import copy
 import json
 import logging
 import os
 import os.path
 import random
+import re
 import requests
 import shutil
 import subprocess
-import sys
 import time
 import threading
 
-import importlib.machinery
-import importlib.util
 
 from itertools import islice
 
@@ -85,6 +82,14 @@ def html_to_org(html):
     return org.decode(encoding="utf-8", errors="strict")
 
 
+empty_title_notes = []
+
+
+def log_empty_title(note_id):
+    logger.warn(f"{note_id}: title is empty - please fix!")
+    empty_title_notes.append(note_id)
+
+
 def write_org_file(index, total, output_dir, ni):
     note_id = ni["noteId"]
     output_file = os.path.join(output_dir, f"{note_id}.org")
@@ -126,6 +131,36 @@ def write_org_file(index, total, output_dir, ni):
     personal_notes = html_to_org(ni["fields"]["personal_notes"]["value"]).strip()
     summary = html_to_org(ni["fields"]["summary"]["value"]).strip()
     excerpt = html_to_org(ni["fields"]["excerpt"]["value"]).strip()
+
+    def retrieve_and_fixup_url(note_info, url_field):
+        link = note_info["fields"][url_field]["value"].strip()
+        if not link:
+            return None
+        match = re.match(r'<a href="?(.*?)"?>(.*)</a>', link)
+        if not match:
+            return link
+        return f"[[{match[1]}][{match[2]}]]"
+
+    primary_url = retrieve_and_fixup_url(ni, "given_url")
+    alternate_url = retrieve_and_fixup_url(ni, "resolved_url")
+    if not primary_url:
+        primary_url = alternate_url
+        alternate_url = None
+    if primary_url == alternate_url:
+        alternate_url = None
+
+    primary_title = ni["fields"]["given_title"]["value"].strip()
+    alternate_title = ni["fields"]["resolved_title"]["value"].strip()
+    if not primary_title:
+        primary_title = alternate_title
+        alternate_title = None
+    if primary_title == alternate_title:
+        alternate_title = None
+
+    if not primary_title:
+        log_empty_title(note_id)
+        primary_title = primary_url
+
     # chr is needed because f-strings don't support backslash or
     # pound sign in the string.
     # chr(35) = '#'
@@ -136,10 +171,10 @@ def write_org_file(index, total, output_dir, ni):
 {chr(35)}+date: [{time_added_org_date}]
 {chr(35)}+comment: DO NOT EDIT - run ~anki-articles-to-org~ to re-export from Anki
 
-* {ni['fields']['given_title']['value']}
+* {primary_title}
 :PROPERTIES:
 :ID: anki_article_{note_id}
-:ROAM_REFS: {ni['fields']['given_url']['value']}
+:ROAM_REFS: {primary_url}{" " + alternate_url if alternate_url else ""}{(chr(10) + ':ROAM_ALIASES: "' + alternate_title + '"') if alternate_title else ''}
 :END:
 
 {"** Personal Notes" + chr(10) + chr(10) + personal_notes + chr(10) + chr(10) if personal_notes else ""}"""
@@ -152,7 +187,6 @@ def write_org_file(index, total, output_dir, ni):
     content_encoded = content.encode("utf-8")
 
     # Only update file if content changed, to preserve modtime.
-    content_changed = False
     old_content = None
     try:
         with open(output_file, "rb") as f:
@@ -164,7 +198,7 @@ def write_org_file(index, total, output_dir, ni):
     else:
         logger.info(f"{note_id}: content changed - updating {output_file}")
         logger.debug(
-            f"{note_id}: old_content =\n{content.decode(encoding='utf-8', errors='strict')}"
+            f"{note_id}: old_content =\n{old_content.decode(encoding='utf-8', errors='strict')}"
         )
         with open(output_file, "wb") as f:
             f.write(content_encoded)
@@ -232,6 +266,8 @@ def main():
             schedule_thread(threads, i, len(note_infos), args.output_dir, ni)
         while schedule_thread(threads, None, None, None, None):
             pass
+    if empty_title_notes:
+        logger.warn(f"Note IDs with no title: {empty_title_notes}")
 
 
 if __name__ == "__main__":
