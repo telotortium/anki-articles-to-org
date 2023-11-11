@@ -207,7 +207,7 @@ def write_org_file(index, total, output_dir, ni):
     else:
         logger.info(f"{note_id}: content changed - updating {output_file}")
         logger.debug(
-            f"{note_id}: old_content =\n{old_content.decode(encoding='utf-8', errors='strict')}"
+            f"{note_id}: old_content =\n{old_content.decode(encoding='utf-8', errors='strict') if old_content is not None else old_content}"
         )
         with open(output_file, "wb") as f:
             f.write(content_encoded)
