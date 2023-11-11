@@ -4,23 +4,32 @@ import json
 import logging
 import os
 import os.path
+import pdb
 import random
 import re
-import requests
 import shutil
 import subprocess
+import sys
 import time
 import threading
-
+import traceback
 
 from itertools import islice
+
+import requests
 
 # Create logger that logs to standard error
 logger = logging.getLogger("anki-articles-to-org")
 # These 2 lines prevent duplicate log lines.
 logger.handlers.clear()
 logger.propagate = False
-level = os.environ.get("ANKI_ARTICLES_TO_ORG_LOGLEVEL", logging.INFO)
+
+LEVEL_DEFAULT = logging.INFO
+level = os.environ.get("ANKI_ARTICLES_TO_ORG_LOGLEVEL")
+if level:
+    level = level.upper()
+else:
+    level = LEVEL_DEFAULT
 logger.setLevel(level)
 
 # Create handler that logs to standard error
@@ -34,10 +43,11 @@ handler.setFormatter(formatter)
 # Add handler to the logger
 logger.addHandler(handler)
 
-ANKI_SUSPENDED_TAG = "anki:suspend"
-FAVORITE_TAG = "marked"
-anki_url = "http://localhost:8765"
-version = 6
+ANKICONNECT_URL_DEFAULT = "http://localhost:8765"
+ankiconnect_url = os.environ.get(
+    "ANKI_ARTICLES_TO_ORG_ANKICONNECT_URL", ANKICONNECT_URL_DEFAULT
+)
+ANKICONNECT_VERSION = 6
 
 
 def batched(iterable, n):
@@ -51,8 +61,9 @@ def batched(iterable, n):
 
 
 def ankiconnect_request(payload):
+    payload["version"] = ANKICONNECT_VERSION
     logger.debug("payload = %s", payload)
-    response = json.loads(requests.post(anki_url, json=payload).text)
+    response = json.loads(requests.post(ankiconnect_url, json=payload, timeout=3).text)
     logger.debug("response = %s", response)
     if response["error"] is not None:
         logger.warning("payload %s had response error: %s", payload, response)
@@ -103,7 +114,6 @@ def write_org_file(index, total, output_dir, ni):
         response = ankiconnect_request(
             {
                 "action": "cardsModTime",
-                "version": version,
                 "params": {
                     "cards": cards,
                 },
@@ -113,7 +123,6 @@ def write_org_file(index, total, output_dir, ni):
         ankiconnect_request(
             {
                 "action": "updateNoteFields",
-                "version": version,
                 "params": {
                     "note": {
                         "id": note_id,
@@ -226,9 +235,30 @@ def schedule_thread(threads, index, total, output_dir, ni):
 
 
 def main():
+    try:
+        _main()
+    except Exception:
+        debug = os.environ.get("ANKI_ARTICLES_TO_ORG_DEBUG", None)
+        if debug and debug != "0":
+            _extype, _value, tb = sys.exc_info()
+            traceback.print_exc()
+            pdb.post_mortem(tb)
+        else:
+            raise
+
+
+def _main():
     parser = argparse.ArgumentParser(
         prog="anki-articles-to-org",
         description="Export Article notes in Anki as individual Org-mode files to a directory.",
+        epilog=f"""Environment variables:
+
+- ANKI_ARTICLES_TO_ORG_ANKICONNECT_URL: set to the URL of AnkiConnect. Default:
+  {ANKICONNECT_URL_DEFAULT}
+  set to "{ANKICONNECT_URL_DEFAULT}".
+- ANKI_ARTICLES_TO_ORG_DEBUG: set in order to debug using PDB upon exception.
+- ANKI_ARTICLES_TO_ORG_LOGLEVEL: set log level. Default: {LEVEL_DEFAULT}
+""",
     )
     parser.add_argument("output_dir", help="The directory to export article notes to.")
     parser.add_argument(
@@ -243,7 +273,6 @@ def main():
     response = ankiconnect_request(
         {
             "action": "findNotes",
-            "version": version,
             "params": {
                 # Find notes with `given_url` and `given_title` not empty, but
                 # `item_id` empty.
@@ -256,7 +285,6 @@ def main():
     response = ankiconnect_request(
         {
             "action": "notesInfo",
-            "version": version,
             "params": {
                 "notes": note_ids,
             },
