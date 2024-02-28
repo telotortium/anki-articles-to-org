@@ -158,17 +158,30 @@ def write_org_file(index, total, output_dir, ni):
     if primary_url == alternate_url:
         alternate_url = None
 
-    primary_title = ni["fields"]["given_title"]["value"].strip()
-    alternate_title = ni["fields"]["resolved_title"]["value"].strip()
-    if not primary_title:
-        primary_title = alternate_title
-        alternate_title = None
-    if primary_title == alternate_title:
-        alternate_title = None
+    given_title = ni["fields"]["given_title"]["value"].strip()
+    resolved_title = ni["fields"]["resolved_title"]["value"].strip()
+    custom_title = ni["fields"]["custom_title"]["value"].strip()
+    if custom_title:
+        primary_title = custom_title
+        alternate_titles = [x for x in (given_title, resolved_title) if x]
+    elif given_title:
+        primary_title = given_title
+        alternate_titles = [resolved_title] if resolved_title else []
+    else:
+        primary_title = resolved_title
+        alternate_titles = []
 
     if not primary_title:
         log_empty_title(note_id)
         primary_title = primary_url
+    # Since `alternate_title` is enclosed in quotes in the generated file, we
+    # need to escape existing double quotes. Also remove alternate titles that
+    # are identical to the primary title and remove duplicates.
+    if alternate_titles:
+        alternate_titles = [
+            x.replace('"', r"\"") for x in alternate_titles if x != primary_title
+        ]
+        alternate_titles = sorted(list(dict((x, True) for x in alternate_titles)))
 
     # chr is needed because f-strings don't support backslash or
     # pound sign in the string.
@@ -183,7 +196,8 @@ def write_org_file(index, total, output_dir, ni):
 * {primary_title}
 :PROPERTIES:
 :ID: anki_article_{note_id}
-:ROAM_REFS: {primary_url}{" " + alternate_url if alternate_url else ""}{(chr(10) + ':ROAM_ALIASES: "' + alternate_title + '"') if alternate_title else ''}
+:ROAM_REFS: {primary_url}{" " + alternate_url if alternate_url else ""}\
+{(chr(10) + ':ROAM_ALIASES: ' + ' '.join('"{}"'.format(x) for x in alternate_titles)) if alternate_titles else ""}
 :END:
 
 {"** Personal Notes" + chr(10) + chr(10) + personal_notes + chr(10) + chr(10) if personal_notes else ""}"""
